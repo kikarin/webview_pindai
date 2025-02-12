@@ -110,16 +110,17 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   /// Meminta izin lokasi & kamera sebelum membuka WebView
   Future<void> _requestPermissions() async {
+    // Meminta izin kamera terlebih dahulu
+    var cameraStatus = await Permission.camera.request();
+    if (cameraStatus.isDenied && mounted) {
+      // Coba minta lagi jika ditolak
+      cameraStatus = await Permission.camera.request();
+    }
+
     // Meminta izin lokasi
     var locationStatus = await Permission.location.request();
     if (locationStatus.isDenied && mounted) {
-      await Permission.location.request();
-    }
-
-    // Meminta izin kamera
-    var cameraStatus = await Permission.camera.request();
-    if (cameraStatus.isDenied && mounted) {
-      await Permission.camera.request();
+      locationStatus = await Permission.location.request();
     }
 
     // Meminta izin lokasi latar belakang jika diperlukan
@@ -131,8 +132,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
     }
 
     // Log status izin untuk debugging
-    debugPrint('Location permission: ${await Permission.location.status}');
     debugPrint('Camera permission: ${await Permission.camera.status}');
+    debugPrint('Location permission: ${await Permission.location.status}');
     debugPrint('Background Location: ${await Permission.locationAlways.status}');
   }
 
@@ -158,7 +159,6 @@ class _WebViewScreenState extends State<WebViewScreen> {
                 initialSettings: InAppWebViewSettings(
                   javaScriptEnabled: true,
                   geolocationEnabled: true,
-                  mediaPlaybackRequiresUserGesture: false,
                   allowsInlineMediaPlayback: true,
                   useHybridComposition: true,
                   supportZoom: false,
@@ -172,23 +172,30 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   allowFileAccess: true,
                   allowContentAccess: true,
                   loadWithOverviewMode: true,
+                  mediaPlaybackRequiresUserGesture: false,
+                  allowFileAccessFromFileURLs: true,
+                  allowUniversalAccessFromFileURLs: true,
                 ),
                 onGeolocationPermissionsShowPrompt: (controller, origin) async {
-                  // Otomatis mengizinkan permintaan lokasi dari webview
                   return GeolocationPermissionShowPromptResponse(
                     origin: origin,
                     allow: true,
                     retain: true
                   );
                 },
+                onPermissionRequest: (controller, resources) async {
+                  return PermissionResponse(
+                    resources: resources.resources,
+                    action: PermissionResponseAction.GRANT);
+                },
                 onWebViewCreated: (controller) {
                   _controller = controller;
                 },
                 onLoadError: (controller, url, code, message) {
-                  print('WebView Error: $code - $message');
+                  debugPrint('WebView Error: $code - $message');
                 },
                 onConsoleMessage: (controller, consoleMessage) {
-                  print('Console: ${consoleMessage.message}');
+                  debugPrint('Console: ${consoleMessage.message}');
                 },
                 onLoadStart: (controller, url) {
                   setState(() {
