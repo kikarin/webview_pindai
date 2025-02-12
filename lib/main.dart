@@ -3,6 +3,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:safe_device/safe_device.dart';
 import 'dart:io';
+import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,20 +38,40 @@ class _WebViewScreenState extends State<WebViewScreen> {
   InAppWebViewController? _controller;
   bool isLoading = true;
   String currentUrl = "https://app.pindai.me";
+  Timer? _securityCheckTimer; // Timer untuk cek keamanan berkala
 
   @override
   void initState() {
     super.initState();
-    _checkSecurity();
+    _initialSecurityCheck();
     _requestPermissions();
     
     if (Platform.isAndroid) {
       AndroidInAppWebViewController.setWebContentsDebuggingEnabled(true);
     }
+
+    // Menambahkan pengecekan keamanan berkala setiap 5 detik
+    _securityCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      _checkSecurity();
+    });
+  }
+
+  @override
+  void dispose() {
+    _securityCheckTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Pengecekan keamanan awal
+  Future<void> _initialSecurityCheck() async {
+    bool shouldExit = await _checkSecurity();
+    if (shouldExit && mounted) {
+      exit(0);
+    }
   }
 
   /// Mengecek apakah perangkat di-root atau menggunakan Fake GPS
-  Future<void> _checkSecurity() async {
+  Future<bool> _checkSecurity() async {
     bool isRooted = false;
     bool isMockLocation = false;
 
@@ -74,7 +95,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
             actions: [
               TextButton(
                 onPressed: () {
-                  exit(0); // ✅ Langsung keluar tanpa Navigator.pop()
+                  exit(0);
                 },
                 child: const Text('OK'),
               ),
@@ -82,50 +103,37 @@ class _WebViewScreenState extends State<WebViewScreen> {
           ),
         );
       }
+      return true;
     }
+    return false;
   }
 
   /// Meminta izin lokasi & kamera sebelum membuka WebView
   Future<void> _requestPermissions() async {
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.location,
-      Permission.camera,
-      Permission.locationWhenInUse,
-      Permission.locationAlways,
-    ].request();
+    // Meminta izin lokasi
+    var locationStatus = await Permission.location.request();
+    if (locationStatus.isDenied && mounted) {
+      await Permission.location.request();
+    }
 
-    // Cek status permission lokasi
-    if (statuses[Permission.location]!.isDenied ||
-        statuses[Permission.locationWhenInUse]!.isDenied) {
-      // Tampilkan dialog jika permission ditolak
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (BuildContext context) => AlertDialog(
-            title: const Text('Izin Lokasi Diperlukan'),
-            content: const Text(
-              'Aplikasi memerlukan akses lokasi untuk berfungsi dengan baik. '
-              'Mohon aktifkan izin lokasi di pengaturan.',
-            ),
-            actions: <Widget>[
-              TextButton(
-                child: const Text('Buka Pengaturan'),
-                onPressed: () {
-                  openAppSettings();
-                  Navigator.of(context).pop();
-                },
-              ),
-              TextButton(
-                child: const Text('Batal'),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
-              ),
-            ],
-          ),
-        );
+    // Meminta izin kamera
+    var cameraStatus = await Permission.camera.request();
+    if (cameraStatus.isDenied && mounted) {
+      await Permission.camera.request();
+    }
+
+    // Meminta izin lokasi latar belakang jika diperlukan
+    if (locationStatus.isGranted) {
+      var backgroundLocation = await Permission.locationAlways.request();
+      if (backgroundLocation.isDenied && mounted) {
+        await Permission.locationAlways.request();
       }
     }
+
+    // Log status izin untuk debugging
+    debugPrint('Location permission: ${await Permission.location.status}');
+    debugPrint('Camera permission: ${await Permission.camera.status}');
+    debugPrint('Background Location: ${await Permission.locationAlways.status}');
   }
 
   @override
@@ -166,6 +174,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
                   loadWithOverviewMode: true,
                 ),
                 onGeolocationPermissionsShowPrompt: (controller, origin) async {
+                  // Otomatis mengizinkan permintaan lokasi dari webview
                   return GeolocationPermissionShowPromptResponse(
                     origin: origin,
                     allow: true,
