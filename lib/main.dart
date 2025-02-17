@@ -39,6 +39,8 @@ class _WebViewScreenState extends State<WebViewScreen> {
   bool isLoading = true;
   String currentUrl = "https://app.pindai.me";
   Timer? _securityCheckTimer; // Timer untuk cek keamanan berkala
+  bool isRooted = false;
+  bool isMockLocation = false;
 
   @override
   void initState() {
@@ -50,9 +52,12 @@ class _WebViewScreenState extends State<WebViewScreen> {
       AndroidInAppWebViewController.setWebContentsDebuggingEnabled(true);
     }
 
-    // Menambahkan pengecekan keamanan berkala setiap 5 detik
-    _securityCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _checkSecurity();
+    // Pengecekan keamanan berkala
+    _securityCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      bool isSecurityViolated = await _checkSecurity();
+      if (isSecurityViolated && mounted) {
+        _showSecurityWarningDialog();
+      }
     });
   }
 
@@ -64,17 +69,14 @@ class _WebViewScreenState extends State<WebViewScreen> {
 
   /// Pengecekan keamanan awal
   Future<void> _initialSecurityCheck() async {
-    bool shouldExit = await _checkSecurity();
-    if (shouldExit && mounted) {
-      exit(0);
+    bool isSecurityViolated = await _checkSecurity();
+    if (isSecurityViolated && mounted) {
+      _showSecurityWarningDialog();
     }
   }
 
   /// Mengecek apakah perangkat di-root atau menggunakan Fake GPS
   Future<bool> _checkSecurity() async {
-    bool isRooted = false;
-    bool isMockLocation = false;
-
     try {
       isRooted = await SafeDevice.isJailBroken;
       isMockLocation = await SafeDevice.isMockLocation;
@@ -82,30 +84,69 @@ class _WebViewScreenState extends State<WebViewScreen> {
       debugPrint('Error checking security: $e');
     }
 
-    if (isRooted || isMockLocation) {
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('Peringatan Keamanan'),
-            content: const Text(
-              'Aplikasi tidak dapat dijalankan karena perangkat Anda terdeteksi menggunakan root atau fake GPS. Mohon gunakan perangkat yang aman.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  exit(0);
-                },
-                child: const Text('OK'),
+    return isRooted || isMockLocation;
+  }
+
+  /// Menampilkan dialog peringatan keamanan
+  void _showSecurityWarningDialog() {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, 
+                   color: Colors.red[700],
+                   size: 28),
+              const SizedBox(width: 8),
+              const Text('Peringatan Keamanan'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Aplikasi mendeteksi adanya pelanggaran keamanan pada perangkat Anda:',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (isRooted) ...[
+                const Text('• Perangkat dalam kondisi ROOT/Jailbreak'),
+                const SizedBox(height: 8),
+              ],
+              if (isMockLocation) ...[
+                const Text('• Terdeteksi penggunaan Fake GPS/Mock Location'),
+                const SizedBox(height: 8),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Untuk alasan keamanan, aplikasi tidak dapat dijalankan pada perangkat yang sudah di-root atau menggunakan Fake GPS.',
+                style: TextStyle(color: Colors.grey[700]),
               ),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                exit(0);
+              },
+              child: const Text('Tutup Aplikasi'),
+            ),
+          ],
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         );
-      }
-      return true;
-    }
-    return false;
+      },
+    );
   }
 
   /// Meminta izin lokasi & kamera sebelum membuka WebView
